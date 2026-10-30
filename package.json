@@ -1,0 +1,57 @@
+{
+  "name": "dsh-fish-notes",
+  "version": "0.1.0",
+  "description": "A small notes journal for a DSH agent: two tools to record what it browsed and thought, and a sidebar panel that lists them. · 不乖鱼鱼的碎碎念：把浏览和想法随手记下来，在 DSH 侧栏查看。",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "author": "不乖鱼鱼",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "notes",
+    "journal",
+    "sidebar"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yeahmahao/dsh-fish-notes.git"
+  },
+  "homepage": "https://github.com/yeahmahao/dsh-fish-notes",
+  "bugs": {
+    "url": "https://github.com/yeahmahao/dsh-fish-notes/issues"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.3 || ^0.2.0-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  }
+}
