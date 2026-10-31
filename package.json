@@ -1,6 +1,6 @@
 {
   "name": "dsh-fish-notes",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "不乖鱼鱼的碎碎念：把浏览和想法随手记下来，在 DSH 侧栏里按天翻看，右侧还有一张记忆图谱。",
   "type": "module",
   "main": "lib/index.js",

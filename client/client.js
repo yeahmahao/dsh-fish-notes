@@ -290,9 +290,17 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
       const on = active < 0 || neigh.has(nd.i);
       const color = CLUSTER_COLORS[clusters[nd.i] % CLUSTER_COLORS.length];
       return h(
-        "circle",
+        "g",
         {
           key: "c" + nd.i,
+          style: { cursor: "pointer" },
+          onMouseEnter: () => setHover(nd.i),
+          onMouseLeave: () => setHover(-1),
+          onClick: () => onSelect(nd.i),
+        },
+        // 大一点的透明命中区，鼠标轻微抖动不会掉出节点，避免悬浮闪烁
+        h("circle", { cx: nd.x, cy: nd.y, r: 13, fill: "transparent", pointerEvents: "all" }),
+        h("circle", {
           cx: nd.x,
           cy: nd.y,
           r: active === nd.i ? 7.5 : 4.4 + Math.min(2.2, nd.kws.length * 0.12),
@@ -300,12 +308,8 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
           opacity: dim ? 0.22 : on ? 0.95 : 0.3,
           stroke: active === nd.i ? "#111" : "rgba(255,255,255,0.9)",
           strokeWidth: active === nd.i ? 1.6 : 1,
-          style: { cursor: "pointer" },
-          onMouseEnter: () => setHover(nd.i),
-          onMouseLeave: () => setHover(-1),
-          onClick: () => onSelect(nd.i),
-        },
-        h("title", null, fmt(nd.entry.time) + "\n" + String(nd.entry.text || "").slice(0, 180))
+          pointerEvents: "none",
+        })
       );
     });
 
@@ -334,14 +338,21 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
         lines,
         circles
       ),
-      activeEntry
-        ? h(
-            "div",
-            { style: styles.tip },
-            h("div", { style: styles.tipTime }, fmt(activeEntry.entry.time)),
-            h("div", { style: styles.tipText }, String(activeEntry.entry.text || "").slice(0, 120))
-          )
-        : null
+      // 固定高度的预览条：悬停时不改变布局，避免「出现→节点位移→鼠标离开→消失」的抖动
+      h(
+        "div",
+        { style: styles.tip },
+        activeEntry
+          ? [
+              h("div", { key: "t", style: styles.tipTime }, fmt(activeEntry.entry.time)),
+              h(
+                "div",
+                { key: "x", style: styles.tipText },
+                String(activeEntry.entry.text || "").slice(0, 120)
+              ),
+            ]
+          : h("div", { style: styles.tipHint }, "悬停节点看一句预览，点一下跳到左边那条")
+      )
     );
   }
 
@@ -708,7 +719,16 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
     graphTitle: { fontSize: "12px", fontWeight: 600, opacity: 0.7 },
     graphSub: { fontSize: "11px", opacity: 0.5 },
     graphEmpty: { flex: "1 1 auto", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.5, fontSize: "13px", padding: "20px", textAlign: "center" },
-    tip: { flex: "0 0 auto", borderTop: "1px solid rgba(127,127,127,0.16)", paddingTop: "6px", maxHeight: "62px", overflow: "hidden" },
+    tip: {
+      flex: "0 0 auto",
+      height: "52px",
+      boxSizing: "border-box",
+      borderTop: "1px solid rgba(127,127,127,0.16)",
+      padding: "5px 0 0",
+      overflow: "hidden",
+      pointerEvents: "none",
+    },
+    tipHint: { fontSize: "11px", opacity: 0.4, paddingTop: "4px" },
     tipTime: { fontSize: "11px", opacity: 0.5 },
     tipText: { fontSize: "12px", lineHeight: 1.45, opacity: 0.85 },
     legend: { flex: "0 0 auto", display: "flex", flexWrap: "wrap", gap: "5px", padding: "6px 10px 8px", borderTop: "1px solid rgba(127,127,127,0.16)" },
