@@ -356,6 +356,144 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
     );
   }
 
+  // ---------------- 时间轴 ----------------
+  function Timeline(props) {
+    const { entries, sel, onSelect } = props;
+    const [hover, setHover] = useState(-1);
+    const W = 440, H = 520;
+    const list = entries || [];
+
+    const model = useMemo(() => {
+      const days = [];
+      const byDay = new Map();
+      for (const e of list) {
+        const d = dayOf(e.time);
+        if (!byDay.has(d)) {
+          byDay.set(d, []);
+          days.push(d);
+        }
+        byDay.get(d).push(e);
+      }
+      days.sort();
+      const left = 34, right = 14, top = 26, bottom = 34;
+      const innerW = W - left - right;
+      const stepX = days.length > 1 ? innerW / (days.length - 1) : 0;
+      const rnd = (s) => {
+        let hsh = 0;
+        for (let i = 0; i < s.length; i++) hsh = (hsh * 31 + s.charCodeAt(i)) | 0;
+        return Math.abs(hsh % 1000) / 1000;
+      };
+      const pts = [];
+      for (const e of list) {
+        const di = days.indexOf(dayOf(e.time));
+        const jitter = stepX > 0 ? Math.min(24, stepX * 0.55) : 0;
+        const x = left + (stepX > 0 ? di * stepX : innerW / 2) + (rnd(e.time) - 0.5) * jitter;
+        const y = top + rnd(e.time + "|y") * (H - top - bottom);
+        pts.push({ x, y, entry: e });
+      }
+      return { days, pts, left, right, top, bottom, stepX };
+    }, [list]);
+
+    if (!list.length) {
+      return h("div", { style: styles.graphEmpty }, "还没有记忆，时间轴是空的～");
+    }
+
+    const dayX = (i) =>
+      model.left + (model.stepX > 0 ? i * model.stepX : (W - model.left - model.right) / 2);
+
+    const grid = model.days.map((d, i) =>
+      h("line", {
+        key: "g" + d,
+        x1: dayX(i),
+        x2: dayX(i),
+        y1: model.top - 6,
+        y2: H - model.bottom,
+        stroke: "rgba(127,127,127,0.14)",
+        strokeDasharray: "2 4",
+      })
+    );
+
+    const labels = model.days.map((d, i) => {
+      const every = Math.max(1, Math.ceil(model.days.length / 6));
+      if (i % every !== 0 && i !== model.days.length - 1) return null;
+      return h(
+        "text",
+        {
+          key: "t" + d,
+          x: dayX(i),
+          y: H - model.bottom + 14,
+          textAnchor: "middle",
+          fontSize: 9,
+          fill: "currentColor",
+          opacity: 0.45,
+        },
+        d.slice(5)
+      );
+    });
+
+    const dots = model.pts.map((p, k) => {
+      const idx = list.indexOf(p.entry);
+      const isActive = hover === idx;
+      const isSel = sel === idx;
+      return h(
+        "g",
+        {
+          key: "p" + k,
+          style: { cursor: "pointer" },
+          onMouseEnter: () => setHover(idx),
+          onMouseLeave: () => setHover(-1),
+          onClick: () => onSelect(idx),
+        },
+        h("circle", { cx: p.x, cy: p.y, r: 11, fill: "transparent", pointerEvents: "all" }),
+        h("circle", {
+          cx: p.x,
+          cy: p.y,
+          r: isActive ? 5.6 : 3.4,
+          fill: KIND_COLOR[p.entry.kind || "thought"] || "#7a5bd9",
+          opacity: 0.85,
+          stroke: isSel ? "#111" : "transparent",
+          strokeWidth: 1.2,
+          pointerEvents: "none",
+        })
+      );
+    });
+
+    const shownIdx = hover >= 0 ? hover : sel;
+    const picked = shownIdx >= 0 ? list[shownIdx] : null;
+
+    return h(
+      "div",
+      { style: styles.graphWrap },
+      h(
+        "div",
+        { style: styles.graphHead },
+        h("span", { style: styles.graphTitle }, "时间轴"),
+        h("span", { style: styles.graphSub }, model.days.length + " 天 · " + list.length + " 条")
+      ),
+      h(
+        "svg",
+        {
+          viewBox: "0 0 " + W + " " + H,
+          preserveAspectRatio: "xMidYMid meet",
+          style: { width: "100%", flex: "1 1 auto", minHeight: 0, display: "block" },
+        },
+        grid,
+        dots,
+        labels
+      ),
+      h(
+        "div",
+        { style: styles.tip },
+        picked
+          ? [
+              h("div", { key: "t", style: styles.tipTime }, fmt(picked.time)),
+              h("div", { key: "x", style: styles.tipText }, String(picked.text || "").slice(0, 120)),
+            ]
+          : h("div", { style: styles.tipHint }, "悬停看那天记了什么，点一下跳到左边那条")
+      )
+    );
+  }
+
   // ---------------- 主面板 ----------------
   function Panel() {
     const [entries, setEntries] = useState(null);
@@ -366,6 +504,12 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
     const [kind, setKind] = useState("all");
     const [sel, setSel] = useState(-1);
     const [clusterSel, setClusterSel] = useState(null);
+    const [sugg, setSugg] = useState([]);
+    const [settleIdx, setSettleIdx] = useState(-1);
+    const [settleTitle, setSettleTitle] = useState("");
+    const [toast, setToast] = useState(null);
+    const [view, setView] = useState("graph");
+    const [weeklyBusy, setWeeklyBusy] = useState(false);
     const wrapRef = useRef(null);
 
     useEffect(() => {
@@ -411,6 +555,63 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
         clearInterval(id);
       };
     }, [tick]);
+
+    useEffect(() => {
+      let alive = true;
+      fetch(api("/fish-notes/suggestions"), { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : { suggestions: [] }))
+        .then((d) => {
+          if (alive) setSugg(Array.isArray(d.suggestions) ? d.suggestions : []);
+        })
+        .catch(() => {});
+      return () => {
+        alive = false;
+      };
+    }, [tick]);
+
+    useEffect(() => {
+      if (!toast) return;
+      const id = setTimeout(() => setToast(null), 7000);
+      return () => clearTimeout(id);
+    }, [toast]);
+
+    async function doSettle() {
+      const s = sugg[settleIdx];
+      if (!s) return;
+      const title = settleTitle.trim() || s.title;
+      try {
+        const r = await fetch(api("/fish-notes/settle"), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title, slug: s.slug, entries: s.entries }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "HTTP " + r.status);
+        setToast("沉淀好了：" + d.file);
+        setSettleIdx(-1);
+        setTick((t) => t + 1);
+      } catch (e) {
+        setToast("沉淀失败：" + ((e && e.message) || e));
+      }
+    }
+
+    async function doWeekly() {
+      setWeeklyBusy(true);
+      try {
+        const r = await fetch(api("/fish-notes/weekly"), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ days: 7 }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "HTTP " + r.status);
+        setToast("周记写进 log.md 了（近 7 天 " + d.count + " 条）");
+      } catch (e) {
+        setToast("周记失败：" + ((e && e.message) || e));
+      } finally {
+        setWeeklyBusy(false);
+      }
+    }
 
     const list = entries || [];
     const graph = useMemo(() => buildGraph(list, 440, 520), [list]);
@@ -524,6 +725,16 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
           h(
             "button",
             {
+              onClick: doWeekly,
+              style: Object.assign({}, styles.btn, weeklyBusy ? styles.btnBusy : null),
+              disabled: weeklyBusy,
+              title: "把最近 7 天整理成一段周记，追加进记忆库的 log.md",
+            },
+            weeklyBusy ? "生成中" : "写周记"
+          ),
+          h(
+            "button",
+            {
               onClick: () => setTick((t) => t + 1),
               style: Object.assign({}, styles.btn, busy ? styles.btnBusy : null),
               disabled: busy,
@@ -558,6 +769,55 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
         )
       ),
       error ? h("div", { style: styles.err }, "读取失败：" + error) : null,
+      toast ? h("div", { style: styles.toast }, toast) : null,
+      sugg.length > 0
+        ? h(
+            "div",
+            { style: styles.suggBar },
+            h("span", { style: styles.suggLabel }, "可以沉淀"),
+            sugg.slice(0, 3).map((s, i) =>
+              h(
+                "button",
+                {
+                  key: "s" + i,
+                  style: Object.assign(
+                    {},
+                    styles.suggChip,
+                    settleIdx === i ? styles.suggChipOn : null
+                  ),
+                  title: s.from + " ~ " + s.to + "，点开确认后写成记忆页",
+                  onClick: () => {
+                    if (settleIdx === i) {
+                      setSettleIdx(-1);
+                    } else {
+                      setSettleIdx(i);
+                      setSettleTitle(s.title);
+                    }
+                  },
+                },
+                s.title + " · " + s.count + " 条"
+              )
+            )
+          )
+        : null,
+      settleIdx >= 0 && sugg[settleIdx]
+        ? h(
+            "div",
+            { style: styles.settleBox },
+            h(
+              "span",
+              { style: styles.settleHint },
+              "写成记忆页 projects/" + sugg[settleIdx].slug + ".md"
+            ),
+            h("input", {
+              value: settleTitle,
+              onChange: (ev) => setSettleTitle(ev.target.value),
+              style: styles.settleInput,
+            }),
+            h("button", { style: styles.btn, onClick: doSettle }, "沉淀"),
+            h("button", { style: styles.btnGhost, onClick: () => setSettleIdx(-1) }, "取消")
+          )
+        : null,
       h(
         "div",
         { style: styles.body },
@@ -573,46 +833,70 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
         h(
           "div",
           { style: styles.graphPane },
-          h(Graph, {
-            entries: list,
-            visible: visibleSet,
-            sel: sel,
-            onSelect: pickNode,
-            clusterFilter: clusterSel,
-            clusters: graph.clusters,
-          }),
           h(
             "div",
-            { style: styles.legend },
+            { style: styles.viewToggle },
             h(
               "button",
               {
-                onClick: () => setClusterSel(null),
-                style: Object.assign({}, styles.lgItem, clusterSel == null ? styles.lgOn : null),
+                style: Object.assign({}, styles.vtBtn, view === "graph" ? styles.vtOn : null),
+                onClick: () => setView("graph"),
               },
-              "全部主题"
+              "图谱"
             ),
-            graph.clusterList.slice(0, 8).map((c) =>
-              h(
-                "button",
-                {
-                  key: "cl" + c.id,
-                  onClick: () => setClusterSel(clusterSel === c.id ? null : c.id),
-                  style: Object.assign({}, styles.lgItem, clusterSel === c.id ? styles.lgOn : null),
-                  title: "按主题过滤列表",
-                },
-                h(
-                  "span",
-                  {
-                    style: Object.assign({}, styles.lgDot, {
-                      background: CLUSTER_COLORS[c.id % CLUSTER_COLORS.length],
-                    })
-                  }
-                ),
-                c.label + " " + c.count
-              )
+            h(
+              "button",
+              {
+                style: Object.assign({}, styles.vtBtn, view === "timeline" ? styles.vtOn : null),
+                onClick: () => setView("timeline"),
+              },
+              "时间轴"
             )
-          )
+          ),
+          view === "graph"
+            ? h(Graph, {
+                entries: list,
+                visible: visibleSet,
+                sel: sel,
+                onSelect: pickNode,
+                clusterFilter: clusterSel,
+                clusters: graph.clusters,
+              })
+            : h(Timeline, { entries: list, sel: sel, onSelect: pickNode }),
+          view === "graph"
+            ? h(
+                "div",
+                { style: styles.legend },
+                h(
+                  "button",
+                  {
+                    onClick: () => setClusterSel(null),
+                    style: Object.assign({}, styles.lgItem, clusterSel == null ? styles.lgOn : null),
+                  },
+                  "全部主题"
+                ),
+                graph.clusterList.slice(0, 8).map((c) =>
+                  h(
+                    "button",
+                    {
+                      key: "cl" + c.id,
+                      onClick: () => setClusterSel(clusterSel === c.id ? null : c.id),
+                      style: Object.assign({}, styles.lgItem, clusterSel === c.id ? styles.lgOn : null),
+                      title: "按主题过滤列表",
+                    },
+                    h(
+                      "span",
+                      {
+                        style: Object.assign({}, styles.lgDot, {
+                          background: CLUSTER_COLORS[c.id % CLUSTER_COLORS.length],
+                        })
+                      }
+                    ),
+                    c.label + " " + c.count
+                  )
+                )
+              )
+            : null
         )
       )
     );
@@ -647,6 +931,81 @@ window.__ModuleLoader__.load({ id: "dsh-fish-notes", factory: (require) => {
       fontSize: "13px",
     },
     btnBusy: { opacity: 0.6, cursor: "default" },
+    btnGhost: {
+      padding: "4px 12px",
+      borderRadius: "6px",
+      border: "1px solid transparent",
+      background: "transparent",
+      cursor: "pointer",
+      fontSize: "13px",
+      opacity: 0.65,
+      color: "inherit",
+    },
+    toast: {
+      flex: "0 0 auto",
+      margin: "6px 0 0",
+      padding: "6px 10px",
+      borderRadius: "7px",
+      background: "rgba(74,144,217,0.14)",
+      border: "1px solid rgba(74,144,217,0.35)",
+      fontSize: "12.5px",
+    },
+    suggBar: {
+      flex: "0 0 auto",
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      flexWrap: "wrap",
+      margin: "8px 0 0",
+      minHeight: "24px",
+    },
+    suggLabel: { fontSize: "11px", opacity: 0.5, letterSpacing: "0.5px" },
+    suggChip: {
+      padding: "4px 10px",
+      borderRadius: "999px",
+      border: "1px dashed rgba(127,127,127,0.45)",
+      background: "transparent",
+      color: "inherit",
+      fontSize: "12px",
+      cursor: "pointer",
+      opacity: 0.8,
+    },
+    suggChipOn: { borderStyle: "solid", borderColor: "#4a90d9", color: "#4a90d9", opacity: 1 },
+    settleBox: {
+      flex: "0 0 auto",
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      flexWrap: "wrap",
+      margin: "8px 0 0",
+      padding: "8px 10px",
+      borderRadius: "8px",
+      background: "rgba(127,127,127,0.08)",
+      border: "1px solid rgba(127,127,127,0.25)",
+    },
+    settleHint: { fontSize: "12px", opacity: 0.6 },
+    settleInput: {
+      flex: "1 1 200px",
+      minWidth: 0,
+      padding: "5px 9px",
+      borderRadius: "6px",
+      border: "1px solid rgba(127,127,127,0.35)",
+      background: "transparent",
+      color: "inherit",
+      fontSize: "13px",
+      outline: "none",
+    },
+    viewToggle: { display: "flex", gap: "0", flex: "0 0 auto", marginBottom: "6px" },
+    vtBtn: {
+      padding: "3px 12px",
+      fontSize: "12px",
+      border: "1px solid rgba(127,127,127,0.35)",
+      background: "transparent",
+      color: "inherit",
+      cursor: "pointer",
+      opacity: 0.65,
+    },
+    vtOn: { opacity: 1, background: "rgba(74,144,217,0.14)", color: "#4a90d9", borderColor: "rgba(74,144,217,0.5)" },
     toolbar: { display: "flex", gap: "10px", alignItems: "center", margin: "10px 0", flex: "0 0 auto" },
     search: {
       flex: "1 1 auto",

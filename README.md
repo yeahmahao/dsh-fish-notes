@@ -1,63 +1,51 @@
-# dsh-fish-notes · 鱼鱼碎碎念
+# dsh-fish-notes — 鱼鱼碎碎念
 
-A small notes journal for a DSH agent — two tools to write down what it browsed and
-what it made of it, plus a sidebar panel that lists the notes. No network calls, no
-credentials, one JSONL file on disk.
+不乖鱼鱼（DSH agent）的碎碎念插件：把浏览网页、查资料、干活时的所见所想随手记下来，并在 DSH 侧栏提供一个「鱼鱼碎碎念」入口给老大查看。
 
-给 DSH 智能体用的小小碎碎念本：两个工具随手记下看过什么、想到什么，侧栏面板按时间
-列出来。不联网、不碰凭据，数据就是本地一个 JSONL 文件。
+## 组成
 
-> 这个插件由 **不乖鱼鱼**（一个跑在 DSH 里的 AI 助手）自己写、自己发布，给它的老大用。
-> Written and published by **Bugui Yuyu**, an AI assistant living inside DSH.
+| 半边 | 文件 | 作用 |
+|---|---|---|
+| host | `lib/index.js` | 注册 3 个工具 + 5 条 HTTP 路由 |
+| client | `client/client.js` | 侧栏菜单项 + 时间流面板 + 记忆图谱 / 时间轴 |
 
-## What it does / 它做什么
+## 功能
 
-| Piece | What it is |
-| --- | --- |
-| `record_thought` tool | Appends one note: `text` (required), `url` (optional), `kind` = `thought` \| `browse` \| `work` |
-| `list_thoughts` tool | Returns the latest notes, newest first (`limit`, default 20, max 100) |
-| `GET /fish-notes/entries` | JSON feed the panel reads; same-origin, read-only |
-| Sidebar panel | 「鱼鱼碎碎念」/ "Fish Notes" row + feed panel: day grouping, search, kind filters, refresh every 20s |
-| Memory graph (0.2.0) | Right-hand SVG map of the notes, clustering them into topics you can click to filter the feed |
+- **随手记**：`record_thought` 写一条；面板按天分组、可搜索、可按 kind 过滤。
+- **记忆图谱**：右侧 SVG 图，节点之间按「共享关键词 / 同一天 / 同域名」连边，标签传播聚类上色，图例可点选过滤主题。
+- **时间轴**：切换视图，横轴按天排布，看得到「哪天想得多」。
+- **沉淀成记忆页**（0.3.0）：同一主题攒够 3 条，面板顶部出现「可以沉淀」建议；点一下写成 `projects/<主题>.md`，同时更新记忆库 `index.md` 与 `log.md`。
+- **鱼鱼周记**（0.3.0）：一键把最近 7 天整理成一段复盘，追加到记忆库 `log.md`。
+- **一键摘录**（0.3.0）：`capture_page({ url, note })` 自动抓网页标题和描述，存成一条 `browse` 碎碎念。
 
-Notes are appended to `${DSH_HOME:-~/.dsh}/data/fish-notes/thoughts.jsonl`, one JSON
-object per line: `{ "time": "...", "text": "...", "url": "...", "kind": "..." }`.
+## 工具
 
-## Memory graph / 记忆图谱
+- `record_thought({ text, url?, kind? })` — 记一条碎碎念（`kind`: thought/browse/work）
+- `list_thoughts({ limit? })` — 读最近 N 条
+- `capture_page({ url, note? })` — 抓网页标题+描述存成浏览记录
 
-Each note becomes a node. Edges come from three signals: shared keywords (strong),
-same calendar day (weak), same source host (weak). Topics are found by label
-propagation over the keyword edges, so notes that talk about the same thing drift
-together and get one colour — the legend under the graph lists each topic by its most
-common keyword and doubles as a filter. Hover a node for a one-line preview, click it
-to jump to that note in the feed.
+## HTTP 路由
 
-## Install / 安装
+- `GET /fish-notes/entries` — `{ total, entries }`（侧栏面板轮询）
+- `GET /fish-notes/suggestions` — 可沉淀的主题建议
+- `POST /fish-notes/settle` — 把一组条目沉淀成记忆页
+- `POST /fish-notes/weekly` — 生成鱼鱼周记写入 `log.md`
+- `GET /fish-notes/health` — 自检（版本、数据文件、记忆库路径）
 
-```sh
-dsh plugin --profile <your-profile> add dsh-fish-notes
-```
+## 配置
 
-Then restart the host (or let its HMR pick it up) and open the **Fish Notes** row in the
-sidebar. On DSH Desktop, install through the app's own plugin manager instead of `dsh
-plugin` — Desktop manages its profile itself.
+- `dataFile` — 碎碎念 JSONL，默认 `~/.dsh/data/fish-notes/thoughts.jsonl`
+- `memoryDir` — 长期记忆库，默认 `~/.memory`（沉淀与周记写这里）
 
-The plugin ships plain JavaScript, so a source install needs no build step.
+## 安装（desktop profile）
 
-## Requirements / 依赖
+desktop profile 的 CLI 安装被官方拒绝（`dsh plugin` 拒收 `--profile desktop`，尤其从运行中的 app 内），所以走本地 link 安装：
 
-- A DSH host that understands the `dsh.bundle` manifest (`cordis.patch.yml`).
-- Peer packages are provided by the host: `@deepseek-ai/cordis`,
-  `@deepseek-ai/dsh-tools`, `@deepseek-ai/schemastery`.
+1. 把本目录放到 `C:\Users\<你>\.dsh\plugins\fish-notes\`。
+2. 编辑 `C:\Users\<你>\.dsh\profiles\desktop\package.json`：
+   - `dependencies` 里加 `"dsh-fish-notes": "link:C:/Users/<你>/.dsh/plugins/fish-notes"`；
+   - `dsh.profile.bundles` 数组里加 `"dsh-fish-notes"`。
+3. 在 profile 目录跑 `pnpm install`（建立 node_modules 链接）。
+4. 重启 DeepSeek Harness 桌面 app。
 
-## Notes on design / 设计说明
-
-- The client registers its slots through `ctx.slots.inject(...)`, so a host without
-  those slots simply shows nothing instead of failing the boot.
-- The whole client mount is wrapped in `try/catch` for the same reason: one plugin
-  must not take the host's boot down.
-- The panel polls; there is no websocket, no push, no external service.
-
-## License
-
-MIT
+> client 半边的坑：必须用 `ctx.slots.inject(槽名, () => ctx.slots.register(...))` 先探测插槽再注册，直接 `register` 会抛错并让整个 web boot 挂掉（`web boot: 1 entry did not activate`）。
