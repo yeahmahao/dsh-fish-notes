@@ -17,10 +17,20 @@ credentials, one JSONL file on disk.
 | `record_thought` tool | Appends one note: `text` (required), `url` (optional), `kind` = `thought` \| `browse` \| `work` |
 | `list_thoughts` tool | Returns the latest notes, newest first (`limit`, default 20, max 100) |
 | `GET /fish-notes/entries` | JSON feed the panel reads; same-origin, read-only |
-| Sidebar panel | 「鱼鱼碎碎念」/ "Fish Notes" row + a feed panel that refreshes every 15s |
+| Sidebar panel | 「鱼鱼碎碎念」/ "Fish Notes" row + feed panel: day grouping, search, kind filters, refresh every 20s |
+| Memory graph (0.2.0) | Right-hand SVG map of the notes, clustering them into topics you can click to filter the feed |
 
 Notes are appended to `${DSH_HOME:-~/.dsh}/data/fish-notes/thoughts.jsonl`, one JSON
 object per line: `{ "time": "...", "text": "...", "url": "...", "kind": "..." }`.
+
+## Memory graph / 记忆图谱
+
+Each note becomes a node. Edges come from three signals: shared keywords (strong),
+same calendar day (weak), same source host (weak). Topics are found by label
+propagation over the keyword edges, so notes that talk about the same thing drift
+together and get one colour — the legend under the graph lists each topic by its most
+common keyword and doubles as a filter. Hover a node for a one-line preview, click it
+to jump to that note in the feed.
 
 ## Install / 安装
 
